@@ -7,6 +7,7 @@ import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.util.Log;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -24,6 +25,8 @@ import com.google.android.gms.fitness.data.DataSet;
 import com.google.android.gms.fitness.data.DataSource;
 import com.google.android.gms.fitness.data.DataType;
 import com.google.android.gms.fitness.data.Field;
+import com.google.android.gms.fitness.data.HealthDataTypes;
+import com.google.android.gms.fitness.data.HealthFields;
 import com.google.android.gms.fitness.data.Value;
 import com.google.android.gms.fitness.request.DataDeleteRequest;
 import com.google.android.gms.fitness.request.DataReadRequest;
@@ -81,6 +84,7 @@ public class HealthPlugin extends CordovaPlugin {
     // Scope for read/write access to activity-related data types in Google Fit.
     // These include activity type, calories consumed and expended, step counts, and others.
     public static Map<String, DataType> activitydatatypes = new HashMap<String, DataType>();
+
     static {
         activitydatatypes.put("steps", DataType.TYPE_STEP_COUNT_DELTA);
         activitydatatypes.put("calories", DataType.TYPE_CALORIES_EXPENDED);
@@ -90,6 +94,7 @@ public class HealthPlugin extends CordovaPlugin {
 
     // Scope for read/write access to biometric data types in Google Fit. These include heart rate, height, and weight.
     public static Map<String, DataType> bodydatatypes = new HashMap<String, DataType>();
+
     static {
         bodydatatypes.put("height", DataType.TYPE_HEIGHT);
         bodydatatypes.put("weight", DataType.TYPE_WEIGHT);
@@ -99,6 +104,7 @@ public class HealthPlugin extends CordovaPlugin {
 
     // Scope for read/write access to location-related data types in Google Fit. These include location, distance, and speed.
     public static Map<String, DataType> locationdatatypes = new HashMap<String, DataType>();
+
     static {
         locationdatatypes.put("distance", DataType.TYPE_DISTANCE_DELTA);
     }
@@ -151,6 +157,11 @@ public class HealthPlugin extends CordovaPlugin {
 
     public static Map<String, DataType> customdatatypes = new HashMap<String, DataType>();
 
+    public static Map<String, DataType> healthdatatypes = new HashMap<String, DataType>();
+
+    static {
+        healthdatatypes.put("blood_glucose", HealthDataTypes.TYPE_BLOOD_GLUCOSE);
+    }
 
     public HealthPlugin() {
     }
@@ -326,6 +337,9 @@ public class HealthPlugin extends CordovaPlugin {
                 }
             });
             return true;
+        } else if ("disconnect".equals(action)) {
+            disconnect(callbackContext);
+            return true;
         } else if ("query".equals(action)) {
             cordova.getThreadPool().execute(new Runnable() {
                 @Override
@@ -400,6 +414,28 @@ public class HealthPlugin extends CordovaPlugin {
         PluginResult result;
         result = new PluginResult(PluginResult.Status.OK, false);
         callbackContext.sendPluginResult(result);
+    }
+
+    /**
+     * Disconnects the client from the Google APIs
+     * @param callbackContext
+     */
+    private void disconnect(final CallbackContext callbackContext) {
+        if (mClient != null && mClient.isConnected()) {
+            Fitness.ConfigApi.disableFit(mClient).setResultCallback(new ResultCallback<Status>() {
+                @Override
+                public void onResult(@NonNull Status status) {
+                    if(status.isSuccess()){
+                        mClient.disconnect();
+                        callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.OK, true));
+                    } else {
+                        callbackContext.error("cannot disconnect," + status.getStatusMessage());
+                    }
+                }
+            });
+        } else{
+            callbackContext.error("cannot disconnect, client not connected");
+        }
     }
 
     // prompts to install GooglePlayServices if not available then Google Fit if not available
@@ -628,6 +664,8 @@ public class HealthPlugin extends CordovaPlugin {
             dt = nutritiondatatypes.get(datatype);
         if (customdatatypes.get(datatype) != null)
             dt = customdatatypes.get(datatype);
+        if(healthdatatypes.get(datatype) != null)
+            dt = healthdatatypes.get(datatype);
         if (dt == null) {
             callbackContext.error("Datatype " + datatype + " not supported");
             return;
@@ -768,6 +806,10 @@ public class HealthPlugin extends CordovaPlugin {
                             dob.put(f.getName(), fieldvalue);
                         }
                         obj.put("value", dob);
+                    } else if (DT.equals(HealthDataTypes.TYPE_BLOOD_GLUCOSE)) {
+                        float glucose = datapoint.getValue(HealthFields.FIELD_BLOOD_GLUCOSE_LEVEL).asFloat();
+                        obj.put("value", glucose);
+                        obj.put("unit", "mmol/L");
                     }
 
                     resultset.put(obj);
@@ -1228,6 +1270,8 @@ public class HealthPlugin extends CordovaPlugin {
             dt = nutritiondatatypes.get(datatype);
         if (customdatatypes.get(datatype) != null)
             dt = customdatatypes.get(datatype);
+        if (healthdatatypes.get(datatype) != null)
+            dt = healthdatatypes.get(datatype);
         if (dt == null) {
             callbackContext.error("Datatype " + datatype + " not supported");
             return;
@@ -1282,7 +1326,7 @@ public class HealthPlugin extends CordovaPlugin {
             String value = args.getJSONObject(0).getString("value");
             datapoint.getValue(Field.FIELD_ACTIVITY).setActivity(value);
         } else if (dt.equals(DataType.TYPE_NUTRITION)) {
-            if(datatype.startsWith("nutrition.")){
+            if (datatype.startsWith("nutrition.")) {
                 //it's a single nutrient
                 NutrientFieldInfo nuf = nutrientFields.get(datatype);
                 float nuv = (float) args.getJSONObject(0).getDouble("value");
@@ -1291,28 +1335,28 @@ public class HealthPlugin extends CordovaPlugin {
                 // it's a nutrition object
                 JSONObject nutrobj = args.getJSONObject(0).getJSONObject("value");
                 String mealtype = nutrobj.getString("meal_type");
-                if(mealtype!=null && !mealtype.isEmpty()) {
-                    if(mealtype.equalsIgnoreCase("breakfast"))
+                if (mealtype != null && !mealtype.isEmpty()) {
+                    if (mealtype.equalsIgnoreCase("breakfast"))
                         datapoint.getValue(Field.FIELD_MEAL_TYPE).setInt(Field.MEAL_TYPE_BREAKFAST);
-                    else if(mealtype.equalsIgnoreCase("lunch"))
+                    else if (mealtype.equalsIgnoreCase("lunch"))
                         datapoint.getValue(Field.FIELD_MEAL_TYPE).setInt(Field.MEAL_TYPE_LUNCH);
-                    else if(mealtype.equalsIgnoreCase("snack"))
+                    else if (mealtype.equalsIgnoreCase("snack"))
                         datapoint.getValue(Field.FIELD_MEAL_TYPE).setInt(Field.MEAL_TYPE_SNACK);
-                    else if(mealtype.equalsIgnoreCase("dinner"))
+                    else if (mealtype.equalsIgnoreCase("dinner"))
                         datapoint.getValue(Field.FIELD_MEAL_TYPE).setInt(Field.MEAL_TYPE_DINNER);
                     else datapoint.getValue(Field.FIELD_MEAL_TYPE).setInt(Field.MEAL_TYPE_UNKNOWN);
                 }
                 String item = nutrobj.getString("item");
-                if(item!=null && !item.isEmpty()) {
+                if (item != null && !item.isEmpty()) {
                     datapoint.getValue(Field.FIELD_FOOD_ITEM).setString(item);
                 }
                 JSONObject nutrientsobj = nutrobj.getJSONObject("nutrients");
-                if(nutrientsobj!=null){
+                if (nutrientsobj != null) {
                     Iterator<String> nutrients = nutrientsobj.keys();
-                    while(nutrients.hasNext()) {
+                    while (nutrients.hasNext()) {
                         String nutrientname = nutrients.next();
                         NutrientFieldInfo nuf = nutrientFields.get(nutrientname);
-                        if(nuf != null){
+                        if (nuf != null) {
                             float nuv = (float) nutrientsobj.getDouble(nutrientname);
                             datapoint.getValue(Field.FIELD_NUTRIENTS).setKeyValue(nuf.field, nuv);
                         }
@@ -1339,6 +1383,10 @@ public class HealthPlugin extends CordovaPlugin {
                 if (f.getName().equalsIgnoreCase("year"))
                     datapoint.getValue(f).setInt(year);
             }
+        } else if (dt.equals(HealthDataTypes.TYPE_BLOOD_GLUCOSE)) {
+            String value = args.getJSONObject(0).getString("value");
+            float glucose = Float.parseFloat(value);
+            datapoint.getValue(HealthFields.FIELD_BLOOD_GLUCOSE_LEVEL).setFloat(glucose);
         }
         dataSet.add(datapoint);
 
@@ -1382,6 +1430,8 @@ public class HealthPlugin extends CordovaPlugin {
             dt = nutritiondatatypes.get(datatype);
         if (customdatatypes.get(datatype) != null)
             dt = customdatatypes.get(datatype);
+        if (healthdatatypes.get(datatype) != null)
+            dt = healthdatatypes.get(datatype);
         if (dt == null) {
             callbackContext.error("Datatype " + datatype + " not supported");
             return;

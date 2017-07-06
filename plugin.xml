@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
   id="cordova-plugin-health"
-  version="0.10.0">
+  version="0.10.2">
 
   <name>Cordova Health</name>
 
@@ -56,6 +56,14 @@
     </config-file>
     <config-file target="*-Info.plist" parent="NSHealthUpdateUsageDescription">
       <string>$HEALTH_WRITE_PERMISSION</string>
+    </config-file>
+
+    <config-file target="*/Entitlements-Debug.plist" parent="com.apple.developer.healthkit">
+      <true/>
+    </config-file>
+
+    <config-file target="*/Entitlements-Release.plist" parent="com.apple.developer.healthkit">
+      <true/>
     </config-file>
 
     <header-file src="src/ios/WorkoutActivityConversion.h"/>
