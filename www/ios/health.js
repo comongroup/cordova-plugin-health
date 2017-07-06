@@ -262,6 +262,7 @@ Health.prototype.query = function (opts, onSuccess, onError) {
           else if (opts.unit) res.unit = opts.unit;
           res.sourceName = samples[i].sourceName;
           res.sourceBundleId = samples[i].sourceBundleId;
+          res.streamName = samples[i].metadata && samples[i].metadata.HKWasUserEntered === 1 ? 'user_input' : 'other';
           result.push(res);
         }
       };
