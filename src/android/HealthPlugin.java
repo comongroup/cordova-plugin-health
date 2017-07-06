@@ -717,6 +717,10 @@ public class HealthPlugin extends CordovaPlugin {
                         if (sourceName != null) obj.put("sourceName", sourceName);
                         String sourceBundleId = dataSource.getAppPackageName();
                         if (sourceBundleId != null) obj.put("sourceBundleId", sourceBundleId);
+
+                        // get stream name to check if we have user_input on the other end
+                        String streamName = dataSource.getStreamName();
+                        if (streamName != null) obj.put("streamName", streamName);
                     }
 
                     //reference for fields: https://developers.google.com/android/reference/com/google/android/gms/fitness/data/Field.html
