@@ -261,7 +261,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
     if ([inputDictionary objectForKey:HKPluginKeyUnit]) {
         if (![inputDictionary hasAllRequiredKeys:@[HKPluginKeyUnit] error:error]) return nil;
-            NSString *unitString = [inputDictionary objectForKey:HKPluginKeyUnit];
+        NSString *unitString = [inputDictionary objectForKey:HKPluginKeyUnit];
 
             return [HealthKit getHKQuantitySampleWithStartDate:startDate
                                                    endDate:endDate
@@ -352,26 +352,35 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
     HKUnit *unit = nil;
     @try {
-        unit = ((unitTypeString != nil) ? [HKUnit unitFromString:unitTypeString] : nil);
-        if (unit == nil) {
-            if (error != nil) {
-                *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"unit was invalid"}];
+        if (unitTypeString != nil) {
+            if ([unitTypeString isEqualToString:@"mmol/L"]) {
+                // @see https://stackoverflow.com/a/30196642/1214598
+                unit = [[HKUnit moleUnitWithMetricPrefix:HKMetricPrefixMilli molarMass:HKUnitMolarMassBloodGlucose] unitDividedByUnit:[HKUnit literUnit]];
+            } else {
+                // issue 51
+                // @see https://github.com/Telerik-Verified-Plugins/HealthKit/issues/51
+                if ([unitTypeString isEqualToString:@"percent"]) {
+                    unitTypeString = @"%";
+                }
+                unit = [HKUnit unitFromString:unitTypeString];
             }
-
+        } else {
+            if (error != nil) {
+                *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"unit is invalid"}];
+            }
             return nil;
         }
     } @catch (NSException *e) {
         if (error != nil) {
-            *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"unit was invalid"}];
+            *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"unit is invalid"}];
         }
-
         return nil;
     }
 
     HKQuantity *quantity = [HKQuantity quantityWithUnit:unit doubleValue:value];
     if (![quantity isCompatibleWithUnit:unit]) {
         if (error != nil) {
-            *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"unit was not compatible with quantity"}];
+            *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"unit is not compatible with quantity"}];
         }
 
         return nil;
@@ -384,12 +393,12 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 - (HKCategorySample*) getHKCategorySampleWithStartDate:(NSDate*) startDate endDate:(NSDate*) endDate sampleTypeString:(NSString*) sampleTypeString categoryString:(NSString*) categoryString metadata:(NSDictionary*) metadata error:(NSError**) error {
     HKCategoryType *type = [HKCategoryType categoryTypeForIdentifier:sampleTypeString];
     if (type==nil) {
-      *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey:@"quantity type string was invalid"}];
+      *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey:@"quantity type string is invalid"}];
       return nil;
     }
     NSNumber* value = [self getCategoryValueByName:categoryString type:type];
     if (value == nil) {
-      *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"%@,%@,%@",@"category value was not compatible with category",type.identifier,categoryString]}];
+      *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"%@,%@,%@",@"category value is not compatible with category",type.identifier,categoryString]}];
       return nil;
     }
 
@@ -400,7 +409,8 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     NSDictionary * map = @{
       @"HKCategoryTypeIdentifierSleepAnalysis":@{
         @"HKCategoryValueSleepAnalysisInBed":@(HKCategoryValueSleepAnalysisInBed),
-        @"HKCategoryValueSleepAnalysisAsleep":@(HKCategoryValueSleepAnalysisAsleep)
+        @"HKCategoryValueSleepAnalysisAsleep":@(HKCategoryValueSleepAnalysisAsleep),
+        @"HKCategoryValueSleepAnalysisAwake":@(HKCategoryValueSleepAnalysisAwake)
       }
     };
 
@@ -435,7 +445,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     HKCorrelationType *correlationType = [HKCorrelationType correlationTypeForIdentifier:correlationTypeString];
     if (correlationType == nil) {
         if (error != nil) {
-            *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"correlation type string was invalid"}];
+            *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: @"correlation type string is invalid"}];
         }
 
         return nil;
@@ -487,7 +497,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     }
 
     if (error != nil) {
-        NSString *errMsg = [NSString stringWithFormat:@"required value(s) -%@- was missing from dictionary %@", [missing componentsJoinedByString:@", "], [self description]];
+        NSString *errMsg = [NSString stringWithFormat:@"required value(s) -%@- is missing from dictionary %@", [missing componentsJoinedByString:@", "], [self description]];
         *error = [NSError errorWithDomain:HKPluginError code:0 userInfo:@{NSLocalizedDescriptionKey: errMsg}];
     }
 
@@ -651,7 +661,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     if (energy != nil && energy != (id) [NSNull null]) { // better safe than sorry
         HKUnit *preferredEnergyUnit = [HealthKit getUnit:energyUnit expected:@"HKEnergyUnit"];
         if (preferredEnergyUnit == nil) {
-            [HealthKit triggerErrorCallbackWithMessage:@"invalid energyUnit was passed" command:command delegate:self.commandDelegate];
+            [HealthKit triggerErrorCallbackWithMessage:@"invalid energyUnit is passed" command:command delegate:self.commandDelegate];
             return;
         }
         nrOfEnergyUnits = [HKQuantity quantityWithUnit:preferredEnergyUnit doubleValue:energy.doubleValue];
@@ -664,7 +674,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     if (distance != nil && distance != (id) [NSNull null]) { // better safe than sorry
         HKUnit *preferredDistanceUnit = [HealthKit getUnit:distanceUnit expected:@"HKLengthUnit"];
         if (preferredDistanceUnit == nil) {
-            [HealthKit triggerErrorCallbackWithMessage:@"invalid distanceUnit was passed" command:command delegate:self.commandDelegate];
+            [HealthKit triggerErrorCallbackWithMessage:@"invalid distanceUnit is passed" command:command delegate:self.commandDelegate];
             return;
         }
         nrOfDistanceUnits = [HKQuantity quantityWithUnit:preferredDistanceUnit doubleValue:distance.doubleValue];
@@ -681,7 +691,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     } else if (args[HKPluginKeyEndDate] != nil) {
         endDate = [NSDate dateWithTimeIntervalSince1970:[args[HKPluginKeyEndDate] doubleValue]];
     } else {
-        [HealthKit triggerErrorCallbackWithMessage:@"no duration or endDate was set" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"no duration or endDate is set" command:command delegate:self.commandDelegate];
         return;
     }
 
@@ -798,8 +808,8 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
                         NSEnergyFormatter *energyFormatter = [NSEnergyFormatter new];
                         energyFormatter.forFoodEnergyUse = NO;
-                        double joules = [workout.totalEnergyBurned doubleValueForUnit:[HKUnit kilocalorieUnit]];
-                        NSString *calories = [energyFormatter stringFromJoules:joules];
+                        double cals = [workout.totalEnergyBurned doubleValueForUnit:[HKUnit kilocalorieUnit]];
+                        NSString *calories = [energyFormatter stringFromValue:cals unit:[HKUnit kilocalorieUnit]];
 
                         NSMutableDictionary *entry = [
                                 @{
@@ -849,7 +859,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
     HKUnit *preferredUnit = [HealthKit getUnit:unit expected:@"HKMassUnit"];
     if (preferredUnit == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit was passed" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit is passed" command:command delegate:self.commandDelegate];
         return;
     }
 
@@ -892,7 +902,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
     HKUnit *preferredUnit = [HealthKit getUnit:unit expected:@"HKMassUnit"];
     if (preferredUnit == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit was passed" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit is passed" command:command delegate:self.commandDelegate];
         return;
     }
 
@@ -948,13 +958,13 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     BOOL requestReadPermission = (args[@"requestReadPermission"] == nil || [args[@"requestReadPermission"] boolValue]);
 
     if (amount == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"no amount was set" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"no amount is set" command:command delegate:self.commandDelegate];
         return;
     }
 
     HKUnit *preferredUnit = [HealthKit getUnit:unit expected:@"HKLengthUnit"];
     if (preferredUnit == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit was passed" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit is passed" command:command delegate:self.commandDelegate];
         return;
     }
 
@@ -997,7 +1007,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
     HKUnit *preferredUnit = [HealthKit getUnit:unit expected:@"HKLengthUnit"];
     if (preferredUnit == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit was passed" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"invalid unit is passed" command:command delegate:self.commandDelegate];
         return;
     }
 
@@ -1467,7 +1477,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
     HKStatisticsOptions statOpt = HKStatisticsOptionNone;
 
     if (quantityType == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"sampleType was invalid" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"sampleType is invalid" command:command delegate:self.commandDelegate];
         return;
     } else if ([sampleTypeString isEqualToString:@"HKQuantityTypeIdentifierHeartRate"]) {
         statOpt = HKStatisticsOptionDiscreteAverage;
@@ -1488,12 +1498,17 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
     HKSampleType *type = [HealthKit getHKSampleType:sampleTypeString];
     if (type == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"sampleType was invalid" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"sampleType is invalid" command:command delegate:self.commandDelegate];
         return;
     }
 
     // NSPredicate *predicate = [HKQuery predicateForSamplesWithStartDate:startDate endDate:endDate options:HKQueryOptionStrictStartDate];
     NSPredicate *predicate = nil;
+    
+    BOOL filtered = (args[@"filtered"] != nil && [args[@"filtered"] boolValue]);
+    if (filtered) {
+        predicate = [NSPredicate predicateWithFormat:@"metadata.%K != YES", HKMetadataKeyWasUserEntered];
+    }
 
     NSSet *requestTypes = [NSSet setWithObjects:type, nil];
     [[HealthKit sharedHealthStore] requestAuthorizationToShareTypes:nil readTypes:requestTypes completion:^(BOOL success, NSError *error) {
@@ -1589,7 +1604,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
     HKCorrelationType *type = (HKCorrelationType *) [HealthKit getHKSampleType:correlationTypeString];
     if (type == nil) {
-        [HealthKit triggerErrorCallbackWithMessage:@"sampleType was invalid" command:command delegate:self.commandDelegate];
+        [HealthKit triggerErrorCallbackWithMessage:@"sampleType is invalid" command:command delegate:self.commandDelegate];
         return;
     }
     NSMutableArray *units = [[NSMutableArray alloc] init];
@@ -1652,7 +1667,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
                                                      HKPluginKeySampleType: quantitySample.sampleType.identifier,
                                                      HKPluginKeyValue: @([quantitySample.quantity doubleValueForUnit:unit]),
                                                      HKPluginKeyUnit: unitS,
-                                                     HKPluginKeyMetadata: ((quantitySample.metadata != nil) ? quantitySample.metadata : @{}),
+                                                     HKPluginKeyMetadata: (quantitySample.metadata == nil || ![NSJSONSerialization isValidJSONObject:quantitySample.metadata]) ? @{} : quantitySample.metadata,
                                                      HKPluginKeyUUID: quantitySample.UUID.UUIDString
                                                      }
                                  ];
@@ -1779,7 +1794,7 @@ static NSString *const HKPluginKeyUUID = @"UUID";
 
   HKSampleType *type = [HealthKit getHKSampleType:sampleTypeString];
   if (type == nil) {
-    [HealthKit triggerErrorCallbackWithMessage:@"sampleType was invalid" command:command delegate:self.commandDelegate];
+    [HealthKit triggerErrorCallbackWithMessage:@"sampleType is invalid" command:command delegate:self.commandDelegate];
     return;
   }
 

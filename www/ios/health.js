@@ -6,6 +6,7 @@ var Health = function () {
 
 var dataTypes = [];
 dataTypes['steps'] = 'HKQuantityTypeIdentifierStepCount';
+dataTypes['stairs'] = 'HKQuantityTypeIdentifierFlightsClimbed';
 dataTypes['distance'] = 'HKQuantityTypeIdentifierDistanceWalkingRunning'; // and HKQuantityTypeIdentifierDistanceCycling
 dataTypes['calories'] = 'HKQuantityTypeIdentifierActiveEnergyBurned'; // and HKQuantityTypeIdentifierBasalEnergyBurned
 dataTypes['calories.active'] = 'HKQuantityTypeIdentifierActiveEnergyBurned';
@@ -13,8 +14,10 @@ dataTypes['calories.basal'] = 'HKQuantityTypeIdentifierBasalEnergyBurned';
 dataTypes['height'] = 'HKQuantityTypeIdentifierHeight';
 dataTypes['weight'] = 'HKQuantityTypeIdentifierBodyMass';
 dataTypes['heart_rate'] = 'HKQuantityTypeIdentifierHeartRate';
+dataTypes['heart_rate.variability'] = 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN';
 dataTypes['fat_percentage'] = 'HKQuantityTypeIdentifierBodyFatPercentage';
 dataTypes['activity'] = 'HKWorkoutTypeIdentifier'; // and HKCategoryTypeIdentifierSleepAnalysis
+dataTypes['workouts'] = 'HKWorkoutTypeIdentifier';
 dataTypes['nutrition'] = 'HKCorrelationTypeIdentifierFood';
 dataTypes['nutrition.calories'] = 'HKQuantityTypeIdentifierDietaryEnergyConsumed';
 dataTypes['nutrition.fat.total'] = 'HKQuantityTypeIdentifierDietaryFatTotal';
@@ -35,6 +38,10 @@ dataTypes['nutrition.iron'] = 'HKQuantityTypeIdentifierDietaryIron';
 dataTypes['nutrition.water'] = 'HKQuantityTypeIdentifierDietaryWater';
 dataTypes['nutrition.caffeine'] = 'HKQuantityTypeIdentifierDietaryCaffeine';
 dataTypes['blood_glucose'] = 'HKQuantityTypeIdentifierBloodGlucose';
+dataTypes['insulin'] = 'HKQuantityTypeIdentifierInsulinDelivery';
+dataTypes['appleExerciseTime'] = 'HKQuantityTypeIdentifierAppleExerciseTime';
+dataTypes['blood_pressure'] = 'HKCorrelationTypeIdentifierBloodPressure'; // when requesting auth it's HKQuantityTypeIdentifierBloodPressureSystolic and HKQuantityTypeIdentifierBloodPressureDiastolic
+
 
 var units = [];
 units['steps'] = 'count';
@@ -45,8 +52,9 @@ units['calories.basal'] = 'kcal';
 units['height'] = 'm';
 units['weight'] = 'kg';
 units['heart_rate'] = 'count/min';
+units['heart_rate.variability'] = 'ms';
 units['fat_percentage'] = '%';
-units['nutrition'] = 'nutrition';
+units['nutrition'] = ['g', 'ml', 'kcal'];
 units['nutrition.calories'] = 'kcal';
 units['nutrition.fat.total'] = 'g';
 units['nutrition.fat.saturated'] = 'g';
@@ -66,11 +74,16 @@ units['nutrition.iron'] = 'mg';
 units['nutrition.water'] = 'ml';
 units['nutrition.caffeine'] = 'g';
 units['blood_glucose'] = 'mmol/L';
+units['insulin'] = 'IU';
+units['appleExerciseTime'] = 'min';
+units['blood_pressure'] = 'mmHg';
 
+// just a wrapper for querying Telerik's if HK is available
 Health.prototype.isAvailable = function (success, error) {
   window.plugins.healthkit.available(success, error);
 };
 
+// returns the equivalent native HealthKit data type from the custom one
 var getHKDataTypes = function (dtArr) {
   var HKDataTypes = [];
   for (var i = 0; i < dtArr.length; i++) {
@@ -80,6 +93,9 @@ var getHKDataTypes = function (dtArr) {
         for (var dataType in dataTypes) {
           if (dataType.startsWith('nutrition.')) HKDataTypes.push(dataTypes[dataType]);
         }
+      } else if (dtArr[i] === 'blood_pressure') {
+        HKDataTypes.push('HKQuantityTypeIdentifierBloodPressureSystolic');
+        HKDataTypes.push('HKQuantityTypeIdentifierBloodPressureDiastolic');
       } else if (dataTypes[dtArr[i]]) {
         HKDataTypes.push(dataTypes[dtArr[i]]);
         if (dtArr[i] === 'distance') HKDataTypes.push('HKQuantityTypeIdentifierDistanceCycling');
@@ -132,12 +148,7 @@ var getReadWriteTypes = function (dts, success, error) {
   success(dedupe(readTypes), dedupe(writeTypes));
 };
 
-var dedupe = function (arr) {
-  return arr.filter(function (el, i, arr) {
-    return arr.indexOf(el) === i;
-  });
-};
-
+// requests authorization to HK, a wrapper on top of Telerik's plugin
 Health.prototype.requestAuthorization = function (dts, onSuccess, onError) {
   getReadWriteTypes(dts, function (readTypes, writeTypes) {
     window.plugins.healthkit.requestAuthorization({
@@ -147,6 +158,7 @@ Health.prototype.requestAuthorization = function (dts, onSuccess, onError) {
   }, onError);
 };
 
+// checks if a datatype has been authorized
 Health.prototype.isAuthorized = function (dts, onSuccess, onError) {
   getReadWriteTypes(dts, function (readTypes, writeTypes) {
     var HKDataTypes = dedupe(readTypes.concat(writeTypes));
@@ -165,6 +177,7 @@ Health.prototype.isAuthorized = function (dts, onSuccess, onError) {
   }, onError);
 };
 
+// queries for a datatype
 Health.prototype.query = function (opts, onSuccess, onError) {
   var startD = opts.startDate;
   var endD = opts.endDate;
@@ -196,52 +209,61 @@ Health.prototype.query = function (opts, onSuccess, onError) {
       };
       onSuccess(res);
     }, onError);
-  } else if (opts.dataType === 'activity') {
-    // opts is not really used, the plugin just returns ALL workouts
+  } else if (opts.dataType === 'activity' || opts.dataType === 'workouts') {
+    // opts is not really used, Telerik's plugin just returns ALL workouts
     window.plugins.healthkit.findWorkouts(opts, function (data) {
       var result = [];
       for (var i = 0; i < data.length; i++) {
         var res = {};
+        res.id = data[i].UUID
         res.startDate = new Date(data[i].startDate);
         res.endDate = new Date(data[i].endDate);
         // filter the results based on the dates
         if ((res.startDate >= opts.startDate) && (res.endDate <= opts.endDate)) {
           res.value = data[i].activityType;
           res.unit = 'activityType';
-          res.calories = parseInt(data[i].energy.slice(0, -2)); // remove the ending J
-          res.distance = parseInt(data[i].distance);
+          if (data[i].energy) res.calories = parseInt(data[i].energy.slice(0, -2)); // remove the ending J
+          if (data[i].distance)  res.distance = parseInt(data[i].distance);
           res.sourceName = data[i].sourceName;
           res.sourceBundleId = data[i].sourceBundleId;
           result.push(res);
         }
       }
-      // get sleep analysis also
-      opts.sampleType = 'HKCategoryTypeIdentifierSleepAnalysis';
-      window.plugins.healthkit.querySampleType(opts, function (data) {
-        for (var i = 0; i < data.length; i++) {
-          var res = {};
-          res.startDate = new Date(data[i].startDate);
-          res.endDate = new Date(data[i].endDate);
-          if (data[i].value == 0) res.value = 'sleep.awake';
-          else res.value = 'sleep';
-          res.unit = 'activityType';
-          res.sourceName = data[i].sourceName;
-          res.sourceBundleId = data[i].sourceBundleId;
-          result.push(res);
-        }
-        onSuccess(result);
-      }, onError);
+      if (opts.dataType === 'activity') {
+        // get sleep analysis also
+        opts.sampleType = 'HKCategoryTypeIdentifierSleepAnalysis';
+        window.plugins.healthkit.querySampleType(opts, function (data) {
+          for (var i = 0; i < data.length; i++) {
+            var res = {};
+            res.id = data[i].UUID
+            res.startDate = new Date(data[i].startDate);
+            res.endDate = new Date(data[i].endDate);
+            if (data[i].value == 0) res.value = 'sleep.inBed';
+            else if (data[i].value == 1) res.value = 'sleep';
+            else res.value = 'sleep.awake';
+            res.unit = 'activityType';
+            res.sourceName = data[i].sourceName;
+            res.sourceBundleId = data[i].sourceBundleId;
+            result.push(res);
+          }
+          onSuccess(result);
+        }, onError);
+      } else onSuccess(result);
     }, onError);
-  } else if (opts.dataType === 'nutrition') {
+  } else if (opts.dataType === 'nutrition' || opts.dataType === 'blood_pressure') {
+    // do the correlation queries
     var result = [];
-    window.plugins.healthkit.queryCorrelationType({
+    var qops = { // query-specific options
       startDate: opts.startDate,
       endDate: opts.endDate,
-      correlationType: 'HKCorrelationTypeIdentifierFood',
-      units: ['g', 'ml', 'kcal']
-    }, function (data) {
+      correlationType: dataTypes[opts.dataType]
+    }
+    if (units[opts.dataType].constructor.name == "Array") qops.units = units[opts.dataType];
+    else qops.units = [ units[opts.dataType] ];
+
+    window.plugins.healthkit.queryCorrelationType(qops, function (data) {
       for (var i = 0; i < data.length; i++) {
-        result.push(prepareNutrition(data[i]));
+        result.push(prepareCorrelation(data[i], opts.dataType));
       }
       onSuccess(result);
     }, onError);
@@ -255,10 +277,33 @@ Health.prototype.query = function (opts, onSuccess, onError) {
       var convertSamples = function (samples) {
         for (var i = 0; i < samples.length; i++) {
           var res = {};
+          res.id = samples[i].UUID
           res.startDate = new Date(samples[i].startDate);
           res.endDate = new Date(samples[i].endDate);
-          res.value = samples[i].quantity;
-          if (data[i].unit) res.unit = samples[i].unit;
+          if (opts.dataType === 'blood_glucose') {
+            res.value = {
+              glucose: samples[i].quantity
+            }
+            if (samples[i].metadata && samples[i].metadata.HKBloodGlucoseMealTime) {
+              if(samples[i].metadata.HKBloodGlucoseMealTime == 1) res.value.meal = 'before_meal'
+              else res.value.meal = 'after_meal'
+            }
+            if (samples[i].metadata && samples[i].metadata.HKMetadataKeyBloodGlucoseMealTime) res.value.meal = samples[i].metadata.HKMetadataKeyBloodGlucoseMealTime; // overwrite HKBloodGlucoseMealTime
+            if (samples[i].metadata && samples[i].metadata.HKMetadataKeyBloodGlucoseSleepTime) res.value.sleep = samples[i].metadata.HKMetadataKeyBloodGlucoseSleepTime;
+            if (samples[i].metadata && samples[i].metadata.HKMetadataKeyBloodGlucoseSource) res.value.source = samples[i].metadata.HKMetadataKeyBloodGlucoseSource;
+          } else if (opts.dataType === 'insulin') {
+            res.value = {
+              insulin: samples[i].quantity
+            }
+            if (samples[i].metadata && samples[i].metadata.HKInsulinDeliveryReason) {
+              if(samples[i].metadata.HKInsulinDeliveryReason == 1) res.value.reason = 'basal'
+              else res.value.reason = 'bolus'
+            }
+            if (samples[i].metadata && samples[i].metadata.HKMetadataKeyInsulinDeliveryReason) res.value.reason = samples[i].metadata.HKMetadataKeyInsulinDeliveryReason; // overwrite HKInsulinDeliveryReason
+          } else {
+            res.value = samples[i].quantity;
+          }
+          if (samples[i].unit) res.unit = samples[i].unit;
           else if (opts.unit) res.unit = opts.unit;
           res.sourceName = samples[i].sourceName;
           res.sourceBundleId = samples[i].sourceBundleId;
@@ -295,7 +340,8 @@ Health.prototype.queryAggregated = function (opts, onSuccess, onError) {
   if ((opts.dataType !== 'steps') && (opts.dataType !== 'distance') &&
   (opts.dataType !== 'calories') && (opts.dataType !== 'calories.active') &&
   (opts.dataType !== 'calories.basal') && (opts.dataType !== 'activity') &&
-  (!opts.dataType.startsWith('nutrition'))) {
+  (opts.dataType !== 'workouts') && (!opts.dataType.startsWith('nutrition')) &&
+  (opts.dataType !== 'appleExerciseTime')) {
     // unsupported datatype
     onError('Datatype ' + opts.dataType + ' not supported in queryAggregated');
     return;
@@ -307,7 +353,7 @@ Health.prototype.queryAggregated = function (opts, onSuccess, onError) {
   if (opts.bucket) {
     // ----- with buckets
     opts.aggregation = opts.bucket;
-    if (opts.dataType === 'activity') {
+    if (opts.dataType === 'activity' || opts.dataType === 'workouts') {
       // query and manually aggregate
       navigator.health.query(opts, function (data) {
         onSuccess(bucketize(data, opts.bucket, startD, endD, 'activitySummary', mergeActivitySamples));
@@ -345,7 +391,7 @@ Health.prototype.queryAggregated = function (opts, onSuccess, onError) {
     }
   } else {
     // ---- no bucketing, just sum
-    if (opts.dataType === 'activity') {
+    if (opts.dataType === 'activity' || opts.dataType === 'workouts') {
       navigator.health.query(opts, function (data) {
         // manually aggregate by activity
         onSuccess(aggregateIntoResult(data, 'activitySummary', mergeActivitySamples));
@@ -403,7 +449,7 @@ Health.prototype.store = function (data, onSuccess, onError) {
     onError('Gender is not writeable');
   } else if (data.dataType === 'date_of_birth') {
     onError('Date of birth is not writeable');
-  } else if (data.dataType === 'activity') {
+  } else if (data.dataType === 'activity' || data.dataType === 'workouts') {
     // sleep activity, needs a different call than workout
     if ((data.value === 'sleep') ||
     (data.value === 'sleep.light') ||
@@ -412,13 +458,18 @@ Health.prototype.store = function (data, onSuccess, onError) {
       data.sampleType = 'HKCategoryTypeIdentifierSleepAnalysis';
       data.value = 'HKCategoryValueSleepAnalysisAsleep';
       window.plugins.healthkit.saveSample(data, onSuccess, onError);
-    } else if (data.value === 'sleep.awake') {
+    } else if (data.value === 'sleep.inBed') {
       data.sampleType = 'HKCategoryTypeIdentifierSleepAnalysis';
       data.value = 'HKCategoryValueSleepAnalysisInBed';
+      window.plugins.healthkit.saveSample(data, onSuccess, onError);
+    } else if (data.value === 'sleep.awake') {
+      data.sampleType = 'HKCategoryTypeIdentifierSleepAnalysis';
+      data.value = 'HKCategoryValueSleepAnalysisAwake';
       window.plugins.healthkit.saveSample(data, onSuccess, onError);
     } else {
       // some other kind of workout
       data.activityType = data.value;
+	  data.requestReadPermission = false // do not ask for read permission too
       if (data.calories) {
         data.energy = data.calories;
         data.energyUnit = 'kcal';
@@ -453,13 +504,49 @@ Health.prototype.store = function (data, onSuccess, onError) {
       data.samples.push(sample)
     }
     window.plugins.healthkit.saveCorrelation(data, onSuccess, onError);
+  } else if (data.dataType === 'blood_pressure') {
+    data.correlationType = 'HKCorrelationTypeIdentifierBloodPressure';
+    data.samples = [{
+      'startDate': data.startDate,
+      'endDate': data.endDate,
+      'sampleType': 'HKQuantityTypeIdentifierBloodPressureSystolic',
+      'unit': 'mmHg',
+      'amount': data.value.systolic
+    }, {
+      'startDate': data.startDate,
+      'endDate': data.endDate,
+      'sampleType': 'HKQuantityTypeIdentifierBloodPressureDiastolic',
+      'unit': 'mmHg',
+      'amount': data.value.diastolic
+    }];
+    window.plugins.healthkit.saveCorrelation(data, onSuccess, onError);
   } else if (dataTypes[data.dataType]) {
     // generic case
     data.sampleType = dataTypes[data.dataType];
     if ((data.dataType === 'distance') && data.cycling) {
       data.sampleType = 'HKQuantityTypeIdentifierDistanceCycling';
     }
-    data.amount = data.value;
+    if (data.dataType === 'blood_glucose') {
+      data.amount = data.value.glucose;
+      if (!data.metadata) data.metadata = {};
+      if (data.value.meal) {
+        data.metadata.HKMetadataKeyBloodGlucoseMealTime = data.value.meal;
+        if (data.value.meal.startsWith('before_')) data.metadata.HKBloodGlucoseMealTime = 1;
+        else if (data.value.meal.startsWith('after_')) data.metadata.HKBloodGlucoseMealTime = 2;
+      }
+      if (data.value.sleep) data.metadata.HKMetadataKeyBloodGlucoseSleepTime = data.value.sleep;
+      if (data.value.source) data.metadata.HKMetadataKeyBloodGlucoseSource = data.value.source;
+    } else if (data.dataType === 'insulin') {
+      data.amount = data.value.insulin;
+      if (!data.metadata) data.metadata = {};
+      if (data.value.reason) {
+        data.metadata.HKMetadataKeyInsulinDeliveryReason = data.value.reason;
+        if (data.value.reason.toLowerCase() === 'basal') data.metadata.HKInsulinDeliveryReason = 1;
+        else if (data.value.reason.toLowerCase() === 'bolus') data.metadata.HKInsulinDeliveryReason = 2;
+      }
+    } else {
+      data.amount = data.value;
+    }
     if (units[data.dataType]) {
       data.unit = units[data.dataType];
     }
@@ -498,6 +585,13 @@ cordova.addConstructor(function () {
 
 // UTILITY functions
 
+// shallow removal of duplicates in an array
+var dedupe = function (arr) {
+  return arr.filter(function (el, i, arr) {
+    return arr.indexOf(el) === i;
+  });
+};
+
 // converts from grams into another unit
 // if the unit is not specified or is not weight, then the original quantity is returned
 var convertFromGrams = function (toUnit, q) {
@@ -515,9 +609,10 @@ var convertToGrams = function (fromUnit, q) {
   return q;
 }
 
-// refactors the result of a query into returned type
+// refactors the result of a quantity type query into returned type
 var prepareResult = function (data, unit) {
   var res = {
+    id: data.UUID,
     startDate: new Date(data.startDate),
     endDate: new Date(data.endDate),
     value: data.quantity,
@@ -528,27 +623,37 @@ var prepareResult = function (data, unit) {
   return res;
 };
 
-// refactors the result of a nutrition query into returned type
-var prepareNutrition = function (data) {
+// refactors the result of a correlation query into returned type
+var prepareCorrelation = function (data, dataType) {
   var res = {
+    id: data.UUID,
     startDate: new Date(data.startDate),
     endDate: new Date(data.endDate),
-    value: {},
-    unit: 'nutrition'
+    value: {}
   };
   if (data.sourceName) res.sourceName = data.sourceName;
   if (data.sourceBundleId) res.sourceBundleId = data.sourceBundleId;
-  if (data.metadata && data.metadata.HKFoodType) res.value.item = data.metadata.HKFoodType;
-  if (data.metadata && data.metadata.HKFoodMeal) res.value.meal_type = data.metadata.HKFoodMeal;
-  if (data.metadata && data.metadata.HKFoodBrandName) res.value.brand_name = data.metadata.HKFoodBrandName;
-  res.value.nutrients = {};
-  for (var j = 0; j < data.samples.length; j++) {
-    var sample = data.samples[j];
-    for (var dataname in dataTypes) {
-      if (dataTypes[dataname] === sample.sampleType) {
-        res.value.nutrients[dataname] = convertFromGrams(units[dataname], sample.value);
-        break;
+  if (dataType === 'nutrition') {
+    res.unit = 'nutrition'
+    if (data.metadata && data.metadata.HKFoodType) res.value.item = data.metadata.HKFoodType;
+    if (data.metadata && data.metadata.HKFoodMeal) res.value.meal_type = data.metadata.HKFoodMeal;
+    if (data.metadata && data.metadata.HKFoodBrandName) res.value.brand_name = data.metadata.HKFoodBrandName;
+    res.value.nutrients = {};
+    for (var j = 0; j < data.samples.length; j++) {
+      var sample = data.samples[j];
+      for (var dataname in dataTypes) {
+        if (dataTypes[dataname] === sample.sampleType) {
+          res.value.nutrients[dataname] = convertFromGrams(units[dataname], sample.value);
+          break;
+        }
       }
+    }
+  } else if (dataType === 'blood_pressure') {
+    res.unit = 'mmHG'
+    for (var j = 0; j < data.samples.length; j++) {
+      var sample = data.samples[j];
+      if (sample.sampleType === 'HKQuantityTypeIdentifierBloodPressureSystolic') res.value.systolic = sample.value;
+      if (sample.sampleType === 'HKQuantityTypeIdentifierBloodPressureDiastolic') res.value.diastolic = sample.value;
     }
   }
   return res;
